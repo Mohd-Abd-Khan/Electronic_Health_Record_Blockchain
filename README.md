@@ -86,13 +86,15 @@ The current Fabric topology is configured through the Fabric network files. The 
 | `h-dashboard-api` | `4010` (loopback host binding), `/api/dashboard/` | Optional event store, collector, realtime streams, and role-filtered aggregation API. |
 | `h-dashboard-portal` | `5176` (loopback host binding), `/dashboard/` | Optional role-aware dashboard UI. |
 | `p-backend` | `3000`, `/api/pharmacy/` | Separate pharmacy API; current network identity/config is a known integration blocker. |
-| `l-node-gateway` | `3006` host, `/lab/` | Lab API and static console. |
+| `l-node-gateway` | `3006` host, `/lab/` | Lab API, static console, and multi-agent gateway client. |
+| `history-agent` | In-process Gateway | Patient History & Longitudinal Timeline Agent (Abdullah) in `node-gateway/agents/`. |
+| `services/ai-agent` | `8000`, `/api/` | Companion Clinical AI microservice (FastAPI, Pydantic v2, RAG, Crisis Analyzer). |
 
 Use `docker compose ps` to see container state and `docker compose logs --tail=100 <service>` to inspect one service. A responding HTTP endpoint means only that service responded; it does not prove Fabric, IPFS, or another organization is connected.
 
 ## Dashboard status and safety
 
-The dashboard API and portal are implemented as an optional module. The API includes HS256 JWT verification, a config-based default-deny role map, zero-PHI envelope validation, an append-only NDJSON event cache, a committed-block collector, bounded health polling, `POST /internal/events`, stream tickets, WebSocket/SSE routes, and REST aggregation/trace endpoints. Producer integrations for AI, history, governance, FHIR, security, lab, and pharmacy remain unconnected unless an owner supplies an emitter. The `history-agent` is a logical registry entry marked not connected.
+The dashboard API and portal are implemented as an optional module. The API includes HS256 JWT verification, a config-based default-deny role map, zero-PHI envelope validation, an append-only NDJSON event cache, a committed-block collector, bounded health polling, `POST /internal/events`, stream tickets, WebSocket/SSE routes, and REST aggregation/trace endpoints. Producer integrations for governance, FHIR, and security remain pending; the `history-agent` (developed by Abdullah) is fully connected with a live Zero-PHI telemetry emitter pushing `AGENT_EXECUTION_STARTED`, `AGENT_EXECUTION_COMPLETED`, and `AGENT_EXECUTION_FAILED` lifecycle events.
 
 The event store is a local operational cache, not the authoritative Fabric ledger or a tamper-proof compliance audit. The dashboard does not write to Fabric. It has no Docker socket access and does not manage containers. CPU, memory, disk, and IPFS storage metrics are deferred. Real event data requires configured observer credentials and actual producer integrations; synthetic mock events are separate and explicitly marked.
 
@@ -105,6 +107,33 @@ See [dashboard API README](orgs/hospital/EHR_hospitalOrg-main/ehr-backend-v3/das
 The pharmacy apps are intentionally kept separate. The root startup launches the backend and the manager, employee, inventory, billing, main, and patient frontends. The patient portal is a status-only shell until the backend supports verified patient authentication and patient-scoped access. Pharmacy screens display unavailable states instead of inventing live patient, inventory, or ledger data. A working pharmacy ledger integration requires its team to align a valid connection profile, wallet/crypto material, channel, and deployed contract with the current network.
 
 The lab console is available as a UI/gateway; that does not mean the separate lab Fabric network, AI provider, or IPFS path is connected. The UI hides fallback records when live peer metadata is unavailable.
+
+## Patient History / Timeline Agent & Clinical AI Subsystem
+
+> **Assigned Developer:** Abdullah  
+> **Component Scope:** `orgs/lab/EHR-LABORG-main/client/node-gateway/agents/history-agent.js` & `services/ai-agent/`  
+> **Entry Function:** `async function runHistoryAgent(context)`
+
+The Patient History Agent is responsible for deterministic, evidence-based retrieval, chronological collation, and longitudinal trend analysis of patient medical records across the consortium.
+
+### Core Capabilities
+* **Role-Bounded Historical Retrieval:** Interrogates Hyperledger Fabric through authorized `gateway.getLabResultsByPatient()`.
+* **Patient Data Isolation Guard:** Inspects retrieved payloads and strictly drops any foreign patient records to guarantee zero cross-patient data leakage.
+* **Ascending Chronological Timeline:** Formulates a structured timeline preserving raw dates, observations, and clinical units (`mmHg`, `g/dL`, etc.).
+* **Longitudinal Trend Engine:** Computes factual numerical deltas ($\Delta$) and directional trends (`INCREASING`, `DECREASING`, `STABLE`, `FLUCTUATING`, `INSUFFICIENT_DATA`) without medical speculation.
+* **Zero-PHI Telemetry Hook:** Emits non-blocking lifecycle events directly to the consortium dashboard (`/internal/events`).
+* **Companion Python Clinical Microservice:** Modular FastAPI service in `services/ai-agent/` featuring Pydantic v2 schemas, atomic data locking, and hybrid offline medical guideline RAG.
+
+### Automated Test Verification
+```bash
+# 1. Run Node.js History Agent Tests (8/8 Passing in ~76ms)
+cd orgs/lab/EHR-LABORG-main/client/node-gateway
+npm test
+
+# 2. Run Python Clinical AI Microservice Tests (20/20 Passing in ~0.60s)
+cd services/ai-agent
+python -m pytest tests/ -v
+```
 
 ## Repository map
 
@@ -119,12 +148,17 @@ orgs/pharmacy/fabric-network-swarm/
   app/{manager,employee,inventory,billing,frontend}/ Separate UIs
   app/patient/                  Incomplete UI; src/ is absent
 orgs/lab/EHR-LABORG-main/       Lab gateway/UI and standalone network assets
+  client/node-gateway/agents/  Patient History Agent (history-agent.js, Abdullah)
+services/ai-agent/             Companion Clinical AI Microservice (FastAPI, RAG)
 docs/                           Architecture, setup, dashboard, and audit notes
 nginx/hub/                      Single-entry service hub
 ```
 
 ## Documentation
 
+- [Patient History Agent Project Report (Word .docx)](PATIENT_HISTORY_AGENT_PROJECT_REPORT.docx)
+- [Patient History Agent Project Report (PDF)](PATIENT_HISTORY_AGENT_PROJECT_REPORT.pdf)
+- [Patient History Agent Specification](orgs/lab/EHR-LABORG-main/client/node-gateway/agents/history-agent.md)
 - [Current architecture diagrams](docs/architecture.md)
 - [System overview](docs/system-overview.md)
 - [Setup guide](docs/setup-guide.md)
